@@ -7,14 +7,6 @@ import torch
 from PIL import Image
 from torchvision import transforms
 
-IMG_EXTENSIONS = [
-    '.jpg', '.JPG', '.jpeg', '.JPEG',
-    '.png', '.PNG', '.ppm', '.PPM', '.bmp', '.BMP',
-]
-
-def is_image_file(filename):
-    return any(filename.endswith(extension) for extension in IMG_EXTENSIONS)
-
 class BaseDataset(Dataset):
     def __init__(self, data_dir, transform=None):
         self.data_dir = data_dir
