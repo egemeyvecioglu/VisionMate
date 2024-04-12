@@ -37,7 +37,7 @@ if __name__ == "__main__":
         from dataloader import MPIIFaceGazeDataset
         test_participant = state["test_participant"]
 
-        test_dataset = MPIIFaceGazeDataset(data_dir=data_dir, test_participant="p00", train=False, transform=transform)
+        test_dataset = MPIIFaceGazeDataset(data_dir=data_dir, test_participant=test_participant, train=False, transform=transform)
         test_loader = DataLoader(test_dataset, batch_size=64, shuffle=False)
     else:
         from dataloader import Gaze360Dataset
