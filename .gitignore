@@ -3,3 +3,4 @@ data/MPIIFaceGaze/
 .DS_Store
 test_loss.png
 training_loss.png
+wandb

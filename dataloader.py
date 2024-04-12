@@ -31,9 +31,14 @@ class BaseDataset(Dataset):
         return image, spherical_vector
 
 class MPIIFaceGazeDataset(BaseDataset):
-    def __init__(self, data_dir, transform=None):
+    def __init__(self, data_dir, test_participant, train, transform=None):
         super().__init__(data_dir, transform)
-        self.participants = [f"p{i:02d}" for i in range(15)]  # List participant folders
+        if train:
+            self.participants = [f"p{i:02d}" for i in range(15)]  # List participant folders
+            self.participants.remove(test_participant)
+        else:
+            self.participants = [test_participant]
+
         for participant in self.participants:
             participant_path = os.path.join(self.data_dir, participant)
             with open(os.path.join(participant_path, f"{participant}.txt")) as f:
@@ -47,6 +52,7 @@ class MPIIFaceGazeDataset(BaseDataset):
                     gaze_direction = [gt[0] - fc[0], gt[1] - fc[1], gt[2] - fc[2]]
 
                     self.samples.append((img_path, gaze_direction))
+
 
 class Gaze360Dataset(BaseDataset):
     def __init__(self, data_dir, file_name, transform=None):
