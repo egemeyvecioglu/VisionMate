@@ -13,10 +13,10 @@ import utils
 
 class VisionMate:
     def __init__(self) -> None:
-        self.num_epochs = 100
+        self.num_epochs = 75
         self.batch_size = 16
         self.learning_rate = 1e-5
-        self.model_path = "gaze360.pth"
+        self.model_path = "mpii.pth"
         self.dataset = "MPIIFaceGaze"
         self.data_dir = (
             "./data/MPIIFaceGaze"
@@ -33,17 +33,18 @@ class VisionMate:
         self.current_epoch = 0
 
         self.state = None
-
+        # torch.set_float32_matmul_precision('high')
         self.model = FastViTMLP(self.device)
         self.criterion = nn.MSELoss()
 
         self.optimizer = torch.optim.Adam(
-            [
-            {"params": self.model.fastvit.parameters(), "lr": 1e-5},
-            {"params": self.model.mlp.parameters(), "lr": self.learning_rate},
-            ],
+            self.model.parameters(),
             lr=self.learning_rate,
+            weight_decay=1e-4
         )
+        # self.optimizer = torch.optim.SGD(
+        #     self.model.parameters(), lr=self.learning_rate, momentum=0.9, weight_decay=1e-4
+        # )
 
         # self.scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(self.optimizer, T_0=5, T_mult=1, eta_min=1e-5)
         # self.scheduler = torch.optim.lr_scheduler.StepLR(self.optimizer, step_size=100, gamma=0.1)
@@ -80,7 +81,20 @@ class VisionMate:
     def load_dataset(self):
         # Load dataset
         data_config = timm.data.resolve_model_data_config(self.model.fastvit)
-        transform = timm.data.create_transform(**data_config, is_training=True)
+        # transform = timm.data.create_transform(**data_config, is_training=True)
+
+        train_transform = transforms.Compose([
+                    transforms.RandomResizedCrop(size=256,scale=(0.8,1)),
+                    transforms.ToTensor(),
+                    transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+                ])
+        
+        val_transform = transforms.Compose([
+            transforms.Resize((256,256)),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+        ])
+
         if self.dataset == "MPIIFaceGaze":
 
             # randomly leave one participant out for testing
@@ -90,25 +104,25 @@ class VisionMate:
             print("Test participant: ", self.test_participant)
 
             train_dataset = MPIIFaceGazeDataset(
-                self.data_dir, self.test_participant, train=True, transform=transform
+                self.data_dir, self.test_participant, train=True, transform=train_transform
             )
             test_dataset = MPIIFaceGazeDataset(
-                self.data_dir, self.test_participant, train=False, transform=transform
+                self.data_dir, self.test_participant, train=False, transform=val_transform
             )
             val_dataset = None
 
         else:  # Gaze360
-            train_dataset = Gaze360Dataset(self.data_dir, "train.txt", transform)
-            test_dataset = Gaze360Dataset(self.data_dir, "test.txt", transform)
-            val_dataset = Gaze360Dataset(self.data_dir, "validation.txt", transform)
+            train_dataset = Gaze360Dataset(self.data_dir, "train.txt", train_transform)
+            test_dataset = Gaze360Dataset(self.data_dir, "test.txt", val_transform)
+            val_dataset = Gaze360Dataset(self.data_dir, "validation.txt", val_transform)
 
         print("Creating train loader")
         train_dataloader = DataLoader(
-            train_dataset, batch_size=self.batch_size, shuffle=True
+            train_dataset, batch_size=self.batch_size, shuffle=True, num_workers=4
         )
         print("Creating test loader")
         test_dataloader = DataLoader(
-            test_dataset, batch_size=self.batch_size, shuffle=False
+            test_dataset, batch_size=self.batch_size, shuffle=False, num_workers=4
         )
 
         print("Creating validation loader")
@@ -144,6 +158,11 @@ class VisionMate:
                 )
                 loss = self.criterion(outputs, gaze_directions)
                 loss.backward()
+
+                unclipped_grads = [p.grad.norm().item() for p in self.model.parameters()]
+                torch.nn.utils.clip_grad_norm_(self.model.parameters(), 1)
+                clipped_grads = [p.grad.norm().item() for p in self.model.parameters()]
+
                 self.optimizer.step()
                 train_loss += loss.item()
                 print(
@@ -155,6 +174,10 @@ class VisionMate:
                     {
                         "Batch Train Loss": loss.item(),
                         "Batch Angular Error": train_angular_error.val,
+                        "Unclipped Grads": sum(unclipped_grads),    
+                        "Clipped Grads": sum(clipped_grads),
+                        "Train/Pitch": outputs[:, 0].mean().item(),
+                        "Train/Yaw": outputs[:, 1].mean().item()
                     }
                 )
 
