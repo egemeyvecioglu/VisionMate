@@ -30,7 +30,7 @@ class FastViTMLP(nn.Module):
         x = self.mlp(x)  # Apply MLP without Tanh
 
         angular_output = x[:, :2]
-        angular_output[:, 0:1] = angular_output[:, 0:1] * pi
-        angular_output[:, 1:2] = angular_output[:, 1:2] * pi/2
+        angular_output[:, 0:1] = tanh(angular_output[:, 0:1]) * pi
+        angular_output[:, 1:2] = tanh(angular_output[:, 1:2]) * pi / 2
 
         return angular_output
