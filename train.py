@@ -291,8 +291,8 @@ class VisionMate:
                 i += images.size(0)
                 wandb.log(
                     {
-                        "Batch Pitch Loss": loss_pitch.item(),
-                        "Batch Yaw Loss": loss_yaw.item(),
+                        "Train Pitch Loss": loss_pitch.item(),
+                        "Train Yaw Loss": loss_yaw.item(),
                         "Train/Pitch": pitch_predicted.mean().item(),
                         "Train/Yaw": yaw_predicted.mean().item()
                     }
