@@ -4,9 +4,9 @@ from torch.utils.data import DataLoader
 from torchvision import transforms
 import timm
 import matplotlib.pyplot as plt
-from dataloader import MPIIFaceGazeDataset, Gaze360Dataset
+from dataloader import MPIIFaceGazeDataset, Gaze360Dataset, MPIIFaceGazeProcessedDataset
 import wandb
-from model import FastViTMLP
+from model import FastViTMLP, FastViTL2CS
 from torch.utils.data import random_split
 import os
 import utils
@@ -14,13 +14,14 @@ import utils
 class VisionMate:
     def __init__(self) -> None:
         self.num_epochs = 75
-        self.batch_size = 16
+        self.batch_size = 32
         self.learning_rate = 1e-5
         self.model_path = "mpii.pth"
-        self.dataset = "MPIIFaceGaze"
+        self.method = "L2CS"
+        self.dataset = "MPIIFaceGazeProcessed"
         self.data_dir = (
-            "./data/MPIIFaceGaze"
-            if self.dataset == "MPIIFaceGaze"
+                 "./data/MPIIFaceGaze"              if self.dataset == "MPIIFaceGaze" 
+            else "./data/MPIIFaceGazeProcessed"     if self.dataset == "MPIIFaceGazeProcessed"
             else "/home/kovan-beta/gaze360/Gaze360/"
         )
         self.train_losses = []
@@ -34,8 +35,17 @@ class VisionMate:
 
         self.state = None
         # torch.set_float32_matmul_precision('high')
-        self.model = FastViTMLP(self.device)
-        self.criterion = nn.MSELoss()
+        # self.model = FastViTMLP(self.device)
+        if self.method == "MLP":
+            self.model = FastViTMLP(self.device)
+            self.criterion = nn.MSELoss()
+        elif self.method == "L2CS":
+            self.model = FastViTL2CS(self.device, 28)
+            self.criterion = nn.CrossEntropyLoss().to(self.device)
+            self.reg_criterion = nn.MSELoss().to(self.device)
+            self.softmax = nn.Softmax(dim=1).to(self.device)
+            self.idx_tensor = torch.FloatTensor([idx for idx in range(28)]).to(self.device)
+            self.alpha = 1
 
         self.optimizer = torch.optim.Adam(
             self.model.parameters(),
@@ -111,6 +121,22 @@ class VisionMate:
             )
             val_dataset = None
 
+        elif self.dataset == "MPIIFaceGazeProcessed":
+            
+            # randomly leave one participant out for testing
+            randint = torch.randint(0, 15, (1,))
+            self.test_participant = f"p{randint.item():02d}"
+
+            print("Test participant: ", self.test_participant)
+
+            train_dataset = MPIIFaceGazeProcessedDataset(
+                self.data_dir, self.test_participant, train=True, transform=train_transform
+            )
+            test_dataset = MPIIFaceGazeProcessedDataset(
+                self.data_dir, self.test_participant, train=False, transform=val_transform
+            )
+            val_dataset = None
+
         else:  # Gaze360
             train_dataset = Gaze360Dataset(self.data_dir, "train.txt", train_transform)
             test_dataset = Gaze360Dataset(self.data_dir, "test.txt", val_transform)
@@ -133,6 +159,167 @@ class VisionMate:
         )
 
         return train_dataloader, val_dataloader, test_dataloader
+    
+    def validate_l2cs(self, test=False):
+        self.model.eval()
+        val_pitch_error = utils.AverageMeter()
+        val_yaw_error = utils.AverageMeter()
+        val_pitch_loss = 0.0
+        val_yaw_loss = 0.0
+        loader = (
+            self.test_loader if (test or (self.val_loader is None)) else self.val_loader
+        )
+        len_loader = len(loader)
+        i = 0
+        val_pitch_error.reset()
+        val_yaw_error.reset()
+        with torch.no_grad():
+            for images, labels, cont_labels in loader:
+                images, labels, cont_labels = images.to(self.device), labels.to(self.device), cont_labels.to(self.device)
+                
+                label_pitch = labels[:, 0]
+                label_yaw = labels[:, 1]
+
+                label_pitch_cont = cont_labels[:, 0]
+                label_yaw_cont = cont_labels[:, 1]
+
+                pre_yaw_gaze, pre_pitch_gaze = self.model(images)
+
+                # cross entropy loss
+                loss_pitch = self.criterion(pre_pitch_gaze, label_pitch)
+                loss_yaw = self.criterion(pre_yaw_gaze, label_yaw)
+
+                # MSE loss
+                pitch_predicted = self.softmax(pre_pitch_gaze)
+                yaw_predicted = self.softmax(pre_yaw_gaze)
+
+                pitch_predicted = torch.sum(pitch_predicted * self.idx_tensor, 1) * 3 - 42
+                yaw_predicted = torch.sum(yaw_predicted * self.idx_tensor, 1) * 3 - 42
+
+                loss_pitch_reg = self.reg_criterion(pitch_predicted, label_pitch_cont)
+                loss_yaw_reg = self.reg_criterion(yaw_predicted, label_yaw_cont)
+
+                loss_pitch = loss_pitch + self.alpha * loss_pitch_reg
+                loss_yaw = loss_yaw + self.alpha * loss_yaw_reg
+
+                val_pitch_error.update(
+                    torch.abs(pitch_predicted - label_pitch_cont).mean().item(), images.size(0)
+                )
+                val_yaw_error.update(
+                    torch.abs(yaw_predicted - label_yaw_cont).mean().item(), images.size(0)
+                )
+
+                val_pitch_loss += loss_pitch.item()
+                val_yaw_loss += loss_yaw.item()
+
+                print(
+                    f"Val: {i}/{len(loader.dataset)}, Batch Pitch Error: {val_pitch_error.val}, Batch Yaw Error: {val_yaw_error.val}",
+                    end="\r",
+                )
+                i += images.size(0)
+
+        print()
+
+        if not test:
+            self.val_losses.append((val_pitch_loss / len_loader, val_yaw_loss / len_loader))
+
+        return val_pitch_loss / len_loader, val_yaw_loss / len_loader
+    
+    def train_l2cs(self):
+        print("Training starts. Device: ", self.device)
+
+        for epoch in range(self.num_epochs):
+            self.current_epoch = epoch
+            # print(f"Epoch {epoch} learning rate: {self.scheduler.get_last_lr()[-1]}")
+            self.model.train()
+            sum_loss_pitch_gaze = sum_loss_yaw_gaze = 0.0
+            total_train_batches = len(self.train_loader)
+            i = 0
+
+            train_pitch_error = utils.AverageMeter()
+            train_yaw_error = utils.AverageMeter()
+
+            pitch_loss_meter = utils.EMAMeter()
+            yaw_loss_meter = utils.EMAMeter()
+
+            for images, labels, cont_labels in self.train_loader:
+                images, labels, cont_labels = images.to(self.device), labels.to(self.device), cont_labels.to(self.device)
+                
+                label_pitch = labels[:, 0]
+                label_yaw = labels[:, 1]
+
+                label_pitch_cont = cont_labels[:, 0]
+                label_yaw_cont = cont_labels[:, 1]
+
+                self.optimizer.zero_grad()
+                pre_yaw_gaze, pre_pitch_gaze = self.model(images)
+
+                # cross entropy loss
+                loss_pitch = self.criterion(pre_pitch_gaze, label_pitch)
+                loss_yaw = self.criterion(pre_yaw_gaze, label_yaw)
+
+                # MSE loss
+                pitch_predicted = self.softmax(pre_pitch_gaze)
+                yaw_predicted = self.softmax(pre_yaw_gaze)
+
+                pitch_predicted = torch.sum(pitch_predicted * self.idx_tensor, 1) * 3 - 42
+                yaw_predicted = torch.sum(yaw_predicted * self.idx_tensor, 1) * 3 - 42
+
+                loss_pitch_reg = self.reg_criterion(pitch_predicted, label_pitch_cont)
+                loss_yaw_reg = self.reg_criterion(yaw_predicted, label_yaw_cont)
+
+                loss_pitch = loss_pitch + self.alpha * loss_pitch_reg
+                loss_yaw = loss_yaw + self.alpha * loss_yaw_reg
+
+                pitch_loss_meter.update(loss_pitch.item())
+                yaw_loss_meter.update(loss_yaw.item())
+
+                sum_loss_pitch_gaze += loss_pitch
+                sum_loss_yaw_gaze += loss_yaw
+
+                loss_seq = [loss_pitch, loss_yaw]
+                grad_seq = [torch.tensor(1.0).to(self.device) for _ in loss_seq]
+                self.optimizer.zero_grad(set_to_none=True)
+                torch.autograd.backward(loss_seq, grad_seq)
+                self.optimizer.step()
+                
+                print(
+                    f"Train: {i}/{len(self.train_loader.dataset)}, Batch Pitch Loss: {pitch_loss_meter.avg}, Batch Yaw Loss: {yaw_loss_meter.avg}",
+                    end="\r",
+                )
+
+                i += images.size(0)
+                wandb.log(
+                    {
+                        "Batch Pitch Loss": loss_pitch.item(),
+                        "Batch Yaw Loss": loss_yaw.item(),
+                        "Train/Pitch": pitch_predicted.mean().item(),
+                        "Train/Yaw": yaw_predicted.mean().item()
+                    }
+                )
+
+            self.train_losses.append(
+                (sum_loss_pitch_gaze / total_train_batches, sum_loss_yaw_gaze / total_train_batches)
+            )
+
+            print()
+
+            val_pitch_loss, val_yaw_loss = self.validate_l2cs()
+
+            print(
+                f"Epoch: {epoch} / {self.num_epochs}, Train Pitch Loss: {sum_loss_pitch_gaze / total_train_batches}, Train Yaw Loss: {sum_loss_yaw_gaze / total_train_batches}, \
+                    Val Pitch Loss: {val_pitch_loss}, Val Yaw Loss: {val_yaw_loss}"
+            )
+
+            wandb.log(
+                {
+                    "Train Pitch Loss": sum_loss_pitch_gaze / total_train_batches,
+                    "Train Yaw Loss": sum_loss_yaw_gaze / total_train_batches,
+                    "Val Pitch Loss": val_pitch_loss,
+                    "Val Yaw Loss": val_yaw_loss,
+                }
+
+            )
 
     def train(self):
         print("Training starts. Device: ", self.device)
@@ -256,7 +443,10 @@ class VisionMate:
 
     def run(self):
         try:
-            self.train()
+            if self.method == "MLP":
+                self.train()
+            elif self.method == "L2CS":
+                self.train_l2cs()
         except KeyboardInterrupt or Exception as e:
             print("Error: ", e)
         finally:

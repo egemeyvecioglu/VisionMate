@@ -53,6 +53,47 @@ class MPIIFaceGazeDataset(BaseDataset):
 
                     self.samples.append((img_path, gaze_direction))
 
+class MPIIFaceGazeProcessedDataset(BaseDataset):
+    def __init__(self, data_dir, test_participant, train, transform=None):
+        super().__init__(data_dir, transform)
+        if train:
+            self.participants = [f"p{i:02d}" for i in range(15)]
+            self.participants.remove(test_participant)
+        else:
+            self.participants = [test_participant]
+
+        for participant in self.participants:
+            participant_path = os.path.join(self.data_dir, "Label", participant + ".label")
+            with open(participant_path) as f:
+                lines = f.readlines()
+                for line in lines[1:]:
+                    info = line.strip().split()
+                    img_path = os.path.join(self.data_dir, "Image", info[0])
+                    gaze_direction = info[7].split(",")
+                    gaze_direction = [float(gaze_direction[0]), float(gaze_direction[1])]
+                    self.samples.append((img_path, gaze_direction))
+
+    def __getitem__(self, idx):
+        img_path, gaze_directions = self.samples[idx]
+        gaze_angles = torch.Tensor(gaze_directions)
+        gaze_angles = torch.FloatTensor(gaze_angles)
+
+        pitch = gaze_angles[0] * 180 / np.pi
+        yaw = gaze_angles[1] * 180 / np.pi
+
+        img = Image.open(img_path)
+
+        if self.transform:
+            img = self.transform(img)
+
+        # Bin values
+        bins = np.array(range(-42, 42, 3))
+        binned_pose = np.digitize([pitch, yaw], bins) - 1
+
+        labels = binned_pose
+        cont_labels = torch.FloatTensor([pitch, yaw])
+
+        return img, labels, cont_labels
 
 class Gaze360Dataset(BaseDataset):
     def __init__(self, data_dir, file_name, transform=None):

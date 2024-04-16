@@ -41,3 +41,16 @@ class AverageMeter(object):
         self.sum += val * n
         self.count += n
         self.avg = self.sum / self.count
+
+
+class EMAMeter(object):
+    """Computes the Exponential Moving Average of a value"""
+
+    def __init__(self, alpha=0.9):
+        self.alpha = alpha
+        self.val = 0
+        self.avg = 0
+
+    def update(self, val):
+        self.val = val
+        self.avg = self.alpha * self.avg + (1 - self.alpha) * self.val
