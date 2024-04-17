@@ -254,12 +254,8 @@ class VisionMate:
 
                 # concatenate the predicted values. size = (batch_size, 2)
                 pred = torch.cat((pitch_predicted.unsqueeze(1), yaw_predicted.unsqueeze(1)), 1)
-
-                # # concatenate pred and cont_labels. size = (batch_size, 4)
-                # printable = torch.cat((pred, labels), 1)
-                # print(printable)
                 
-                angle_error = utils.compute_angular_error(pred, labels)
+                angle_error = utils.compute_angular_error(pred, cont_labels)
                 angle_error_meter.update(angle_error)
                 
 

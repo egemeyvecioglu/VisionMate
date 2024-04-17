@@ -11,17 +11,18 @@ def spherical2cartesial(x):
 
 def compute_angular_error(input, target):
 
-    input = spherical2cartesial(input)
-    target = spherical2cartesial(target)
+    #input shape: (batch_size, 2)
+    #target shape: (batch_size, 2)
 
-    input = input.view(-1, 3, 1)
-    target = target.view(-1, 1, 3)
-    output_dot = torch.bmm(target, input)
-    output_dot = output_dot.view(-1)
-    output_dot = torch.acos(output_dot)
-    output_dot = output_dot.data
-    output_dot = 180 * torch.mean(output_dot) / torch.pi
-    return output_dot
+    # return the angle between two vectors
+    norm_input = torch.sqrt(torch.sum(input ** 2, dim=1))
+    norm_target = torch.sqrt(torch.sum(target ** 2, dim=1))
+    dot_product = torch.sum(input * target, dim=1)
+    cosine_similarity = dot_product / (norm_input * norm_target)
+    angle = torch.acos(cosine_similarity)
+    mean_angle = torch.mean(angle) * 180 / 3.1415926
+
+    return mean_angle
 
 
 class AverageMeter(object):
