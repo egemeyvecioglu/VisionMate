@@ -202,20 +202,9 @@ class VisionMate:
                 loss_pitch = loss_pitch + self.alpha * loss_pitch_reg
                 loss_yaw = loss_yaw + self.alpha * loss_yaw_reg
 
-                val_pitch_error.update(
-                    torch.abs(pitch_predicted - label_pitch_cont).mean().item(), images.size(0)
-                )
-                val_yaw_error.update(
-                    torch.abs(yaw_predicted - label_yaw_cont).mean().item(), images.size(0)
-                )
-
                 val_pitch_loss += loss_pitch.item()
                 val_yaw_loss += loss_yaw.item()
 
-                print(
-                    f"Val: {i}/{len(loader.dataset)}, Batch Pitch Error: {val_pitch_error.val}, Batch Yaw Error: {val_yaw_error.val}",
-                    end="\r",
-                )
                 i += images.size(0)
 
         print()
@@ -236,11 +225,9 @@ class VisionMate:
             total_train_batches = len(self.train_loader)
             i = 0
 
-            train_pitch_error = utils.AverageMeter()
-            train_yaw_error = utils.AverageMeter()
-
             pitch_loss_meter = utils.EMAMeter()
             yaw_loss_meter = utils.EMAMeter()
+            angle_error_meter = utils.EMAMeter()
 
             for images, labels, cont_labels in self.train_loader:
                 images, labels, cont_labels = images.to(self.device), labels.to(self.device), cont_labels.to(self.device)
@@ -265,6 +252,17 @@ class VisionMate:
                 pitch_predicted = torch.sum(pitch_predicted * self.idx_tensor, 1) * 3 - 42
                 yaw_predicted = torch.sum(yaw_predicted * self.idx_tensor, 1) * 3 - 42
 
+                # concatenate the predicted values. size = (batch_size, 2)
+                pred = torch.cat((pitch_predicted.unsqueeze(1), yaw_predicted.unsqueeze(1)), 1)
+
+                # # concatenate pred and cont_labels. size = (batch_size, 4)
+                # printable = torch.cat((pred, labels), 1)
+                # print(printable)
+                
+                angle_error = utils.compute_angular_error(pred, labels)
+                angle_error_meter.update(angle_error)
+                
+
                 loss_pitch_reg = self.reg_criterion(pitch_predicted, label_pitch_cont)
                 loss_yaw_reg = self.reg_criterion(yaw_predicted, label_yaw_cont)
 
@@ -284,7 +282,7 @@ class VisionMate:
                 self.optimizer.step()
                 
                 print(
-                    f"Train: {i}/{len(self.train_loader.dataset)}, Batch Pitch Loss: {pitch_loss_meter.avg}, Batch Yaw Loss: {yaw_loss_meter.avg}",
+                    f"Train: {i}/{len(self.train_loader.dataset)}, Pitch Loss: {pitch_loss_meter.avg}, Yaw Loss: {yaw_loss_meter.avg}, Angular Error: {angle_error_meter.avg}",
                     end="\r",
                 )
 
@@ -293,8 +291,7 @@ class VisionMate:
                     {
                         "Train Pitch Loss": loss_pitch.item(),
                         "Train Yaw Loss": loss_yaw.item(),
-                        "Train/Pitch": pitch_predicted.mean().item(),
-                        "Train/Yaw": yaw_predicted.mean().item()
+                        "Angular Error": angle_error,
                     }
                 )
 
@@ -304,7 +301,7 @@ class VisionMate:
 
             print()
 
-            val_pitch_loss, val_yaw_loss = self.validate_l2cs()
+            val_pitch_loss, val_yaw_loss, val_angular_error = self.validate_l2cs()
 
             print(
                 f"Epoch: {epoch} / {self.num_epochs}, Train Pitch Loss: {sum_loss_pitch_gaze / total_train_batches}, Train Yaw Loss: {sum_loss_yaw_gaze / total_train_batches}, \
