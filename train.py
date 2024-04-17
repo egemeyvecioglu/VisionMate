@@ -164,6 +164,7 @@ class VisionMate:
         self.model.eval()
         val_pitch_error = utils.AverageMeter()
         val_yaw_error = utils.AverageMeter()
+        angle_error_meter = utils.AverageMeter()
         val_pitch_loss = 0.0
         val_yaw_loss = 0.0
         loader = (
@@ -196,6 +197,11 @@ class VisionMate:
                 pitch_predicted = torch.sum(pitch_predicted * self.idx_tensor, 1) * 3 - 42
                 yaw_predicted = torch.sum(yaw_predicted * self.idx_tensor, 1) * 3 - 42
 
+                pred = torch.cat((pitch_predicted.unsqueeze(1), yaw_predicted.unsqueeze(1)), 1)
+
+                angle_error = utils.compute_angular_error(pred, cont_labels)
+                angle_error_meter.update(angle_error)
+
                 loss_pitch_reg = self.reg_criterion(pitch_predicted, label_pitch_cont)
                 loss_yaw_reg = self.reg_criterion(yaw_predicted, label_yaw_cont)
 
@@ -212,7 +218,7 @@ class VisionMate:
         if not test:
             self.val_losses.append((val_pitch_loss / len_loader, val_yaw_loss / len_loader))
 
-        return val_pitch_loss / len_loader, val_yaw_loss / len_loader
+        return val_pitch_loss / len_loader, val_yaw_loss / len_loader, angle_error_meter.avg
     
     def train_l2cs(self):
         print("Training starts. Device: ", self.device)
