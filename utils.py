@@ -19,6 +19,7 @@ def compute_angular_error(input, target):
     norm_target = torch.sqrt(torch.sum(target ** 2, dim=1))
     dot_product = torch.sum(input * target, dim=1)
     cosine_similarity = dot_product / (norm_input * norm_target)
+    cosine_similarity = torch.clamp(cosine_similarity, -1, 1)  # Clamp the cosine similarity to the valid range
     angle = torch.acos(cosine_similarity)
     mean_angle = torch.mean(angle) * 180 / 3.1415926
 
