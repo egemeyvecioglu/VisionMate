@@ -236,6 +236,7 @@ class VisionMate:
             angle_error_meter = utils.EMAMeter()
 
             for images, labels, cont_labels in self.train_loader:
+                continue
                 images, labels, cont_labels = images.to(self.device), labels.to(self.device), cont_labels.to(self.device)
                 
                 label_pitch = labels[:, 0]
@@ -307,7 +308,7 @@ class VisionMate:
 
             print(
                 f"Epoch: {epoch} / {self.num_epochs}, Train Pitch Loss: {sum_loss_pitch_gaze / total_train_batches}, Train Yaw Loss: {sum_loss_yaw_gaze / total_train_batches}, \
-                    Val Pitch Loss: {val_pitch_loss}, Val Yaw Loss: {val_yaw_loss}"
+                    Val Pitch Loss: {val_pitch_loss}, Val Yaw Loss: {val_yaw_loss}, Angular Error: {val_angular_error}"
             )
 
             wandb.log(
@@ -316,6 +317,7 @@ class VisionMate:
                     "Train Yaw Loss": sum_loss_yaw_gaze / total_train_batches,
                     "Val Pitch Loss": val_pitch_loss,
                     "Val Yaw Loss": val_yaw_loss,
+                    "Val Angular Error": val_angular_error,
                 }
 
             )
