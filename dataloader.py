@@ -28,18 +28,18 @@ class BaseDataset(Dataset):
         image = Image.open(img_path).convert('RGB')
         if self.transform:
             image = self.transform(image)
-        # return image, spherical_vector
+        return image, spherical_vector
         ######################################################################3
-                # Bin values
-        pitch = spherical_vector[0] * 180 / np.pi
-        yaw = spherical_vector[1]  * 180 / np.pi
-        bins = np.array(range(-42, 42, 3))
-        binned_pose = np.digitize([pitch, yaw], bins) - 1
+        #         # Bin values
+        # pitch = spherical_vector[0] * 180 / np.pi
+        # yaw = spherical_vector[1]  * 180 / np.pi
+        # bins = np.array(range(-42, 42, 3))
+        # binned_pose = np.digitize([pitch, yaw], bins) - 1
 
-        labels = binned_pose
-        cont_labels = torch.FloatTensor([pitch, yaw])
+        # labels = binned_pose
+        # cont_labels = torch.FloatTensor([pitch, yaw])
 
-        return image, labels, cont_labels
+        # return image, labels, cont_labels
 
 class MPIIFaceGazeDataset(BaseDataset):
     def __init__(self, data_dir, test_participant, train, transform=None):
@@ -89,8 +89,8 @@ class MPIIFaceGazeProcessedDataset(BaseDataset):
         gaze_angles = torch.Tensor(gaze_directions)
         gaze_angles = torch.FloatTensor(gaze_angles)
 
-        pitch = gaze_angles[0] * 180 / np.pi
-        yaw = gaze_angles[1] * 180 / np.pi
+        pitch = gaze_angles[0] #* 180 / np.pi
+        yaw = gaze_angles[1] #* 180 / np.pi
 
         img = Image.open(img_path)
 
