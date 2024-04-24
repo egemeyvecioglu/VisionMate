@@ -18,12 +18,17 @@ class BaseDataset(Dataset):
 
     def __getitem__(self, idx):
         img_path, gaze_directions = self.samples[idx]
-        gaze_angles = torch.Tensor(gaze_directions)
-        gaze_angles = torch.FloatTensor(gaze_angles)
-        normalized_gaze = torch.nn.functional.normalize(gaze_angles.view(1,3)).view(3)
+        normalized_gaze = gaze_directions / np.linalg.norm(gaze_directions)
         spherical_vector = torch.FloatTensor(2)
         spherical_vector[0] = np.arctan2(normalized_gaze[0],-normalized_gaze[2])
         spherical_vector[1] = np.arcsin(normalized_gaze[1])
+
+        # gaze_angles = torch.Tensor(gaze_directions)
+        # gaze_angles = torch.FloatTensor(gaze_angles)
+        # normalized_gaze = gaze_angles / np.linalg.norm(gaze_angles)
+        # spherical_vector = torch.FloatTensor(2)
+        # spherical_vector[0] = np.arctan2(normalized_gaze[0],-normalized_gaze[2])
+        # spherical_vector[1] = np.arcsin(normalized_gaze[1])
         
         image = Image.open(img_path).convert('RGB')
         if self.transform:
