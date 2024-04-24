@@ -6,19 +6,25 @@ import timm
 import matplotlib.pyplot as plt
 from dataloader import MPIIFaceGazeDataset, Gaze360Dataset, MPIIFaceGazeProcessedDataset
 import wandb
-from model import FastViTMLP, FastViTL2CS
+from model import FastViTMLP, FastViTL2CS, ResNET50L2CS
 from torch.utils.data import random_split
 import os
 import utils
+import torchvision
 
 class VisionMate:
     def __init__(self) -> None:
         self.num_epochs = 75
-        self.batch_size = 32
+        self.batch_size = 16
         self.learning_rate = 1e-5
         self.model_path = "mpii.pth"
         self.method = "L2CS"
+        self.backbone = "ResNet50"
         self.dataset = "MPIIFaceGazeProcessed"
+        if "MPIIFaceGaze" in self.dataset:
+            self.bins = 28
+        else:
+            self.bins = 90
         self.data_dir = (
                  "./data/MPIIFaceGaze"              if self.dataset == "MPIIFaceGaze" 
             else "./data/MPIIFaceGazeProcessed"     if self.dataset == "MPIIFaceGazeProcessed"
@@ -40,12 +46,20 @@ class VisionMate:
             self.model = FastViTMLP(self.device)
             self.criterion = nn.MSELoss()
         elif self.method == "L2CS":
-            self.model = FastViTL2CS(self.device, 28)
-            self.criterion = nn.CrossEntropyLoss().to(self.device)
-            self.reg_criterion = nn.MSELoss().to(self.device)
-            self.softmax = nn.Softmax(dim=1).to(self.device)
-            self.idx_tensor = torch.FloatTensor([idx for idx in range(28)]).to(self.device)
-            self.alpha = 1
+            if self.backbone == "ResNet50":
+                self.model = ResNET50L2CS(self.device, self.bins, torchvision.models.resnet.Bottleneck, [3, 4, 6, 3])
+                self.criterion = nn.CrossEntropyLoss().to(self.device)
+                self.reg_criterion = nn.MSELoss().to(self.device)
+                self.softmax = nn.Softmax(dim=1).to(self.device)
+                self.idx_tensor = torch.FloatTensor([idx for idx in range(28)]).to(self.device)
+                self.alpha = 1
+            else:
+                self.model = FastViTL2CS(self.device, 28)
+                self.criterion = nn.CrossEntropyLoss().to(self.device)
+                self.reg_criterion = nn.MSELoss().to(self.device)
+                self.softmax = nn.Softmax(dim=1).to(self.device)
+                self.idx_tensor = torch.FloatTensor([idx for idx in range(28)]).to(self.device)
+                self.alpha = 1
 
         self.optimizer = torch.optim.Adam(
             self.model.parameters(),
@@ -90,7 +104,7 @@ class VisionMate:
 
     def load_dataset(self):
         # Load dataset
-        data_config = timm.data.resolve_model_data_config(self.model.fastvit)
+        # data_config = timm.data.resolve_model_data_config(self.model.fastvit)
         # transform = timm.data.create_transform(**data_config, is_training=True)
 
         train_transform = transforms.Compose([
@@ -278,9 +292,9 @@ class VisionMate:
                 sum_loss_yaw_gaze += loss_yaw
 
                 loss_seq = [loss_pitch, loss_yaw]
-                grad_seq = [torch.tensor(1.0).to(self.device) for _ in loss_seq]
+                # grad_seq = [torch.tensor(1.0).to(self.device) for _ in loss_seq]
                 self.optimizer.zero_grad(set_to_none=True)
-                torch.autograd.backward(loss_seq, grad_seq)
+                torch.autograd.backward(loss_seq)
                 self.optimizer.step()
                 
                 print(
