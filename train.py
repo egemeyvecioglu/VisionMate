@@ -496,8 +496,6 @@ class VisionMate:
 
         finally:
 
-            self.plot_losses()
-
             if self.val_loader:
                 test_loss, test_angular_error = self.validate(test=True)
                 print(
