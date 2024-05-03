@@ -12,15 +12,18 @@ import os
 import utils
 import torchvision
 
+torch.manual_seed(0)
+# torch.backends.cudnn.deterministic = True
+
 class VisionMate:
     def __init__(self) -> None:
-        self.num_epochs = 75
-        self.batch_size = 16
-        self.learning_rate = 1e-5
-        self.model_path = "mpii.pth"
-        self.method = "L2CS"
-        self.backbone = "ResNet50"
-        self.dataset = "MPIIFaceGazeProcessed"
+        self.num_epochs = 100
+        self.batch_size = 24
+        self.learning_rate = 2e-5
+        self.model_path = "./models/fastervit_anyres_gaze360-2.pth"
+        self.method = "FasterViT"
+        self.backbone = "FasterViT"
+        self.dataset = ""
         if "MPIIFaceGaze" in self.dataset:
             self.bins = 28
         else:
@@ -39,7 +42,7 @@ class VisionMate:
         )
         self.current_epoch = 0
 
-        self.clip_grads = True
+        self.clip_grads = False
 
         self.state = None
         torch.set_float32_matmul_precision('high')
@@ -48,7 +51,7 @@ class VisionMate:
             self.criterion = nn.MSELoss()
         elif self.method == "FasterViT":
             self.model = FasterViT(self.device)
-            self.criterion = nn.MSELoss()
+            self.criterion = nn.L1Loss()
         elif self.method == "L2CS":
             if self.backbone == "ResNet50":
                 self.model = ResNET50L2CS(self.device, self.bins, torchvision.models.resnet.Bottleneck, [3, 4, 6, 3])
@@ -105,7 +108,12 @@ class VisionMate:
                     "learning_rate": self.learning_rate,
                     "batch_size": self.batch_size,
                     "num_epochs": self.num_epochs,
+                    "scheduler": "CosineAnnealingLR",
+                    "optimizer": "AdamW",
+                    "loss": "L1",
+                    "Prediction Layer": "512-128-2 with Dropout=0.4",
                 },
+                name="FasterViT4 Gaze360",
             )  # Replace with your details
 
     def load_dataset(self):
@@ -114,6 +122,10 @@ class VisionMate:
 
         train_transform = transforms.Compose([
                     transforms.RandomResizedCrop(size=size,scale=(0.8,1)),
+                    transforms.RandomApply([
+                        transforms.ColorJitter(0.8, 0.8, 0.8, 0.2),
+                        transforms.GaussianBlur(3, sigma=(0.1, 2.0))
+                    ], p=0.5),
                     transforms.ToTensor(),
                     transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
                 ])
@@ -384,8 +396,10 @@ class VisionMate:
                         "Batch Angular Error": train_angular_error.val,
                         "Unclipped Grads": sum(unclipped_grads),    
                         "Clipped Grads": sum(clipped_grads),
-                        "Train/Pitch": outputs[:, 0].mean().item(),
-                        "Train/Yaw": outputs[:, 1].mean().item()
+                        "Train/Pitch Predict": outputs[:, 0].mean().item(),
+                        "Train/Yaw Predict": outputs[:, 1].mean().item(),
+                        "Train/Pitch GT": gaze_directions[:, 0].mean().item(),
+                        "Train/Yaw GT": gaze_directions[:, 1].mean().item(),
                     }
                 )
 

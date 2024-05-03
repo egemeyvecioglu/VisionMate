@@ -1,5 +1,5 @@
 import torch.nn as nn
-from torch.nn.functional import tanh
+from torch import mean, cos, tanh, FloatTensor
 from numpy import pi
 import timm
 from fastervit import create_model
@@ -13,7 +13,7 @@ class FastViTMLP(nn.Module):
         self.device = device
 
         self.fastvit = timm.create_model(
-            "fastvit_t8.apple_in1k",
+            "fastvit_sa12.apple_in1k",
             pretrained=True,
             num_classes=0,  # Remove the final classifier layer
         ).to(self.device)
@@ -69,16 +69,23 @@ class FasterViT(nn.Module):
         self.device = device
 
         self.fastervit = create_model(
-            "faster_vit_0_224", pretrained=True, model_path="/tmp/faster_vit_0.pth.tar"
+            "faster_vit_3_224", pretrained=True, model_path="./pretrained/faster_vit_3_224_1k.pth.tar"
         ).to(self.device)
+
+        print(self.fastervit.head.in_features)        
 
         # self.fastervit.head = nn.Sequential(
         #     nn.Linear(512, 256), nn.ReLU(), nn.Dropout(0.4), nn.Linear(256, 2)
         # ).to(self.device)
 
-        self.fastervit.head = nn.Linear(512, 2).to(self.device).to(self.device)
 
-        print("Model initialized")
+        self.fastervit.head = nn.Sequential(
+            nn.Linear(1024, 256),
+            nn.ReLU(),
+            nn.Dropout(0.5),
+            nn.Linear(256, 2),
+        ).to(self.device)
+
 
     def forward(self, x):
         x = self.fastervit(x).to(self.device)
@@ -94,6 +101,10 @@ class ResNET50L2CS(nn.Module):
         self.inplanes = 64
         self.device = device
         super(ResNET50L2CS, self).__init__()
+
+        self.softmax = nn.Softmax(dim=1).to(device)
+        self.idx_tensor = FloatTensor([idx for idx in range(num_bins)]).to(device)
+
         self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3,bias=False).to(device)
         self.bn1 = nn.BatchNorm2d(64).to(device)
         self.relu = nn.ReLU(inplace=True).to(device)
