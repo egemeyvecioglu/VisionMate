@@ -1,5 +1,7 @@
 data/MPIIFaceGaze/
 **/__pycache__
+models/*
+pretrained/*
 .DS_Store
 test_loss.png
 training_loss.png
