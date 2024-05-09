@@ -6,3 +6,5 @@ pretrained/*
 test_loss.png
 training_loss.png
 wandb
+data/images/*
+data/numpy/*
